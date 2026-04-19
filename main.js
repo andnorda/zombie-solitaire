@@ -16,7 +16,7 @@ let stackSpacing = 0;
 let stackStep = 0;
 
 let image, deckImage;
-// Start "done" so step() idles until the first click kicks off `restart`.
+// Start "done" so step() idles until the first click kicks off `start`.
 let fired = TOTAL_CARDS;
 const particles = [];
 
@@ -110,7 +110,7 @@ function launch(stackIdx) {
   particles.push({ x: stackX(stackIdx), y: margin + ch / 2, sx, sy });
 }
 
-function restart() {
+function start() {
   particles.length = 0;
   fired = 0;
   drawStatic();
@@ -157,7 +157,7 @@ Promise.all([load("zombie-token.png"), load("card-back.jpg")]).then(
     deckImage = d;
     resize();
     window.addEventListener("resize", resize);
-    document.addEventListener("pointerdown", restart);
+    document.addEventListener("pointerdown", start, { once: true });
     requestAnimationFrame(step);
   }
 );
