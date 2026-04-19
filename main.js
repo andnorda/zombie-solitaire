@@ -71,7 +71,7 @@ function underCard(x, y) {
   ctx.beginPath();
   ctx.roundRect(left, top, cw, ch, 6 * unit);
   ctx.lineWidth = stackStep;
-  ctx.strokeStyle = "#000000";
+  ctx.strokeStyle = "#181510";
   ctx.stroke();
 }
 
