@@ -11,21 +11,28 @@
   var trailCtx = trailCanvas.getContext("2d");
   var liveCtx = liveCanvas.getContext("2d");
 
-  // Token size on screen (CSS pixels). Preserves 71:96 aspect ratio.
-  var cssWidth = 220;
-  var cssHeight = Math.round((cssWidth * 96) / 71);
+  // Everything (sizes, strokes, corner radii, launch velocities, gravity) is
+  // derived from `unit`, which is set on resize so the whole scene scales
+  // proportionally with the viewport width. That way a laptop screen and a
+  // projector render at the same relative layout and physics.
+  //
+  // `unit` = canvas-width / REFERENCE_WIDTH. Design constants below use the
+  // numbers that looked right at a 1440-pixel-wide canvas (i.e., 1440 CSS-px
+  // at dpr=1, or 1440 CSS-px at any dpr once CSS size is accounted for).
+  var REFERENCE_WIDTH = 1440;
+  var unit = 1;
 
-  var cwidth = cssWidth * Math.round(dpr);
-  var cheight = cssHeight * Math.round(dpr);
-
-  var cwidthhalf = cwidth / 2;
-  var cheighthalf = cheight / 2;
+  // Card size in canvas pixels. Preserves 71:96 aspect ratio.
+  var cwidth = 0;
+  var cheight = 0;
+  var cwidthhalf = 0;
+  var cheighthalf = 0;
 
   // Layout metrics, populated on resize.
-  var margin = 20 * Math.round(dpr);
-  var stackSpacing = (cssWidth + 40) * Math.round(dpr);
-  var stackStepX = -2 * Math.round(dpr);
-  var stackStepY = -2 * Math.round(dpr);
+  var margin = 0;
+  var stackSpacing = 0;
+  var stackStepX = 0;
+  var stackStepY = 0;
   var deckX = 0,
     deckY = 0;
   var foundationsBaseY = 0;
@@ -59,6 +66,23 @@
     liveCanvas.style.width = "100%";
     liveCanvas.style.height = "100%";
 
+    unit = w / REFERENCE_WIDTH;
+
+    cwidth = Math.round(220 * unit);
+    cheight = Math.round((cwidth * 96) / 71);
+    cwidthhalf = cwidth / 2;
+    cheighthalf = cheight / 2;
+
+    margin = 20 * unit;
+    stackSpacing = (220 + 40) * unit;
+    // Snap the per-card stack offset to an integer so successive under-card
+    // strokes (whose width we tie to this step) tile exactly on the pixel
+    // grid. Otherwise fractional stepping + pixel-aligned floors would leave
+    // sub-pixel gaps between strokes that show as gray lines through the
+    // stack.
+    stackStepX = -Math.max(1, Math.round(2 * unit));
+    stackStepY = -Math.max(1, Math.round(2 * unit));
+
     // Deck (top-left).
     deckX = margin + cwidthhalf;
     deckY = margin + cheighthalf;
@@ -81,7 +105,7 @@
   var trailStampInterval = 2;
 
   function Particle(x, y, sx, sy) {
-    if (sx === 0) sx = -2;
+    if (sx === 0) sx = -2 * unit;
 
     // Force the very first position to leave a trail stamp.
     var ticksSinceStamp = trailStampInterval;
@@ -108,9 +132,14 @@
         y = trailCanvas.height - cheighthalf;
         sy = -sy * 0.85;
         self.y = y;
+        // Force a stamp at the bottom of the bounce so the trail always
+        // shows the card touching the floor, even if the regular stamp
+        // cadence would otherwise skip this frame.
+        drawCard(trailCtx, x, y);
+        ticksSinceStamp = 0;
       }
 
-      sy += 1.25;
+      sy += 1.25 * unit;
 
       // Leave a card stamp behind on the trail canvas at a fixed time
       // interval. Time-based stamping gives an accurate record of the
@@ -157,9 +186,8 @@
   // Draws a single zombie card (dark-gray body + border + token) onto the
   // given context, centered at (x, y).
   function drawCard(ctx, x, y) {
-    var scale = Math.round(dpr);
-    var r = 6 * scale;
-    var borderWidth = 2 * scale;
+    var r = 6 * unit;
+    var borderWidth = 2 * unit;
     var left = Math.floor(x - cwidthhalf);
     var top = Math.floor(y - cheighthalf);
 
@@ -187,15 +215,14 @@
   function drawDeckOutline() {
     if (!deckImageReady) return;
 
-    var scale = Math.round(dpr);
     var left = Math.floor(deckX - cwidthhalf);
     var top = Math.floor(deckY - cheighthalf);
     // JPG has no transparency and bakes a thin white margin around a card whose
     // own rounded corners have a smaller radius than the jpg edge. Clipping at
     // r=14 (~matches the card's black-border radius) lands the clip inside
     // fully-black pixels instead of the white/AA transition zone.
-    var r = 14 * scale;
-    var borderWidth = 2 * scale;
+    var r = 14 * unit;
+    var borderWidth = 2 * unit;
 
     trailCtx.save();
     drawCardShape(trailCtx, left, top, cwidth, cheight, r);
@@ -213,9 +240,10 @@
   function drawStack(centerX, centerY, count) {
     if (count <= 0) return;
 
-    var scale = Math.round(dpr);
-    var r = 6 * scale;
-    var borderWidth = 2 * scale;
+    var r = 6 * unit;
+    // Tie under-card stroke width to the (integer) step magnitude so
+    // consecutive strokes tile exactly with no sub-pixel gap.
+    var borderWidth = Math.abs(stackStepX);
 
     for (var k = count - 1; k >= 0; k--) {
       var cx = centerX + k * stackStepX;
@@ -256,10 +284,9 @@
     var launchX = center.x;
     var launchY = center.y;
 
-    var scale = Math.round(dpr);
-    var sx = Math.floor(Math.random() * 6 - 3) * 3 * scale; // -9..9 step 3
-    if (sx === 0) sx = 3 * scale;
-    var sy = -Math.random() * 20 * scale;
+    var sx = Math.floor(Math.random() * 6 - 3) * 3 * unit; // -9..9 step 3
+    if (sx === 0) sx = 3 * unit;
+    var sy = -Math.random() * 20 * unit;
 
     particles.push(new Particle(launchX, launchY, sx, sy));
 
@@ -333,7 +360,16 @@
     }
   });
 
-  window.addEventListener("resize", resize);
+  window.addEventListener("resize", function () {
+    resize();
+    // Writing canvas.width/height resets pixel contents, so the deck and
+    // foundations disappear on resize. Redraw them so moving the window to a
+    // different screen (e.g., plugging in a projector) keeps the UI visible.
+    if (imageReady && deckImageReady) {
+      drawDeckOutline();
+      drawFoundations();
+    }
+  });
   resize();
 
   var initialized = false;
