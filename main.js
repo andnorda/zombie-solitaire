@@ -63,6 +63,8 @@
 
 		if ( sx === 0 ) sx = -2;
 
+		var frame = 0;
+
 		this.update = function () {
 
 			x += sx;
@@ -84,6 +86,11 @@
 			}
 
 			sy += 1.25;
+
+			// Only stamp a card in the trail every other frame so the trail is
+			// half as dense.
+			frame ++;
+			if ( frame % 2 === 0 ) return true;
 
 			var scale = Math.round( dpr );
 			var r = 6 * scale;
