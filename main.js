@@ -14,6 +14,7 @@
   let ch = 0;
   let margin = 0;
   let stackSpacing = 0;
+  let stackStep = 0;
 
   let image, deckImage;
   // Start "done" so step() idles until the first click kicks off `restart`.
@@ -31,6 +32,10 @@
     ch = Math.round((cw * 96) / 71);
     margin = 20 * unit;
     stackSpacing = 260 * unit;
+    // Integer step so consecutive under-card strokes (whose width matches the
+    // step) tile exactly on the pixel grid -- otherwise sub-pixel gaps show
+    // as gray lines through the stack.
+    stackStep = Math.max(1, Math.round(2 * unit));
 
     drawStatic();
   }
@@ -60,6 +65,19 @@
     ctx.stroke();
   }
 
+  function underCard(x, y) {
+    const left = Math.floor(x - cw / 2);
+    const top = Math.floor(y - ch / 2);
+
+    ctx.beginPath();
+    ctx.roundRect(left, top, cw, ch, 6 * unit);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.lineWidth = stackStep;
+    ctx.strokeStyle = "#000000";
+    ctx.stroke();
+  }
+
   function drawStatic() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -79,23 +97,15 @@
     ctx.strokeStyle = "#000000";
     ctx.stroke();
 
-    // Each foundation shows a single dark pad behind the top zombie to hint
-    // at a stack 13 cards deep, without rendering 12 individual under-cards.
-    const extent = (CARDS_PER_STACK - 1) * 2 * unit;
     for (let i = 0; i < 4; i++) {
       const x0 = stackX(i);
       const y0 = margin + ch / 2;
-      ctx.beginPath();
-      ctx.roundRect(
-        Math.floor(x0 - cw / 2 - extent),
-        Math.floor(y0 - ch / 2 - extent),
-        cw + extent,
-        ch + extent,
-        6 * unit
-      );
-      ctx.fillStyle = "#000000";
-      ctx.fill();
-      zombieCard(x0, y0);
+      for (let k = CARDS_PER_STACK - 1; k >= 0; k--) {
+        const x = x0 - k * stackStep;
+        const y = y0 - k * stackStep;
+        if (k === 0) zombieCard(x, y);
+        else underCard(x, y);
+      }
     }
   }
 
