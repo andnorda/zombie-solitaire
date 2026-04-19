@@ -79,8 +79,23 @@
     ctx.strokeStyle = "#000000";
     ctx.stroke();
 
+    // Each foundation shows a single dark pad behind the top zombie to hint
+    // at a stack 13 cards deep, without rendering 12 individual under-cards.
+    const extent = (CARDS_PER_STACK - 1) * 2 * unit;
     for (let i = 0; i < 4; i++) {
-      zombieCard(stackX(i), margin + ch / 2);
+      const x0 = stackX(i);
+      const y0 = margin + ch / 2;
+      ctx.beginPath();
+      ctx.roundRect(
+        Math.floor(x0 - cw / 2 - extent),
+        Math.floor(y0 - ch / 2 - extent),
+        cw + extent,
+        ch + extent,
+        6 * unit
+      );
+      ctx.fillStyle = "#000000";
+      ctx.fill();
+      zombieCard(x0, y0);
     }
   }
 
