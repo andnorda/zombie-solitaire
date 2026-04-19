@@ -87,10 +87,9 @@
 
 			sy += 1.25;
 
-			// Only stamp a card in the trail every other frame so the trail is
-			// half as dense.
+			// Stamp a card in the trail on 3 out of every 4 frames (75% density).
 			frame ++;
-			if ( frame % 2 === 0 ) return true;
+			if ( frame % 4 === 0 ) return true;
 
 			var scale = Math.round( dpr );
 			var r = 6 * scale;
@@ -118,7 +117,7 @@
 
 	var image = document.createElement( 'img' );
 	image.onload = function () { imageReady = true; };
-	image.src = 'zombie-token.png';
+	image.src = 'zombie-token.png?v=2';
 
 	var deckImage = document.createElement( 'img' );
 	var deckImageReady = false;
