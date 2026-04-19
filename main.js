@@ -2,8 +2,15 @@
 
 	var dpr = window.devicePixelRatio || 1;
 
-	var canvas = document.getElementById( 'canvas' );
-	var context = canvas.getContext( '2d' );
+	// Two layered canvases:
+	//   - `trail`: persistent. Holds the deck, foundations, and trail stamps.
+	//     It is NEVER cleared (except on restart), so trails accumulate on it.
+	//   - `live`: transient. Holds the currently-flying card. Cleared every frame
+	//     so the moving card renders smoothly without leaving a continuous streak.
+	var trailCanvas = document.getElementById( 'trail' );
+	var liveCanvas = document.getElementById( 'live' );
+	var trailCtx = trailCanvas.getContext( '2d' );
+	var liveCtx = liveCanvas.getContext( '2d' );
 
 	// Token size on screen (CSS pixels). Preserves 71:96 aspect ratio.
 	var cssWidth = 220;
@@ -17,12 +24,12 @@
 
 	// Layout metrics, populated on resize.
 	var margin = 20 * Math.round( dpr );
-	var stackSpacing = ( cssWidth + 40 ) * Math.round( dpr ); // horizontal gap between foundation stacks
-	var stackStepX = -2 * Math.round( dpr ); // horizontal shift per card down the deck (negative = deeper cards peek out to the LEFT)
-	var stackStepY = -2 * Math.round( dpr ); // vertical shift per card down the deck (negative = deeper cards peek out to the TOP)
-	var deckX = 0, deckY = 0; // top-left deck outline (center)
-	var foundationsBaseY = 0; // center-y of foundation stacks
-	var foundationsRightX = 0; // center-x of the right-most foundation
+	var stackSpacing = ( cssWidth + 40 ) * Math.round( dpr );
+	var stackStepX = -2 * Math.round( dpr );
+	var stackStepY = -2 * Math.round( dpr );
+	var deckX = 0, deckY = 0;
+	var foundationsBaseY = 0;
+	var foundationsRightX = 0;
 
 	var particles = [];
 	var imageReady = false;
@@ -31,97 +38,91 @@
 	var CARDS_PER_STACK = 13;
 	var stacks = [ CARDS_PER_STACK, CARDS_PER_STACK, CARDS_PER_STACK, CARDS_PER_STACK ];
 	var firing = false;
-
-	// Round-robin firing across stacks: 0 (left) -> 1 -> 2 -> 3 (right) -> 0 ...
-	// The next card fires as soon as the previous one has left the screen.
 	var currentStack = 0;
 
 	function resize() {
 
-		canvas.width = window.innerWidth * dpr;
-		canvas.height = window.innerHeight * dpr;
-		canvas.style.width = '100%';
-		canvas.style.height = '100%';
+		var w = window.innerWidth * dpr;
+		var h = window.innerHeight * dpr;
 
-		// Deck outline in top-left.
+		trailCanvas.width = w;
+		trailCanvas.height = h;
+		trailCanvas.style.width = '100%';
+		trailCanvas.style.height = '100%';
+
+		liveCanvas.width = w;
+		liveCanvas.height = h;
+		liveCanvas.style.width = '100%';
+		liveCanvas.style.height = '100%';
+
+		// Deck (top-left).
 		deckX = margin + cwidthhalf;
 		deckY = margin + cheighthalf;
 
-		// Four foundation stacks in top-right, tightly spaced.
+		// Foundation stacks in top-right.
 		foundationsBaseY = margin + cheighthalf;
-		foundationsRightX = canvas.width - margin - cwidthhalf;
+		foundationsRightX = w - margin - cwidthhalf;
 
 	}
 
 	function foundationCenter( i ) {
-		// i = 0..3, 0 is left-most of the four, 3 is right-most (closest to edge).
 		var x = foundationsRightX - ( 3 - i ) * stackSpacing;
 		return { x: x, y: foundationsBaseY };
 	}
 
 	// Minimum distance (in canvas pixels) between consecutive trail stamps for a
-	// single particle. Tuning this gives a visually consistent trail density
-	// regardless of how fast any individual particle is moving.
-	var trailStampDistance = 14 * Math.round( dpr );
+	// single particle. Controls how often the trail is left behind.
+	var trailStampDistance = 60 * Math.round( dpr );
 
 	function Particle( x, y, sx, sy ) {
 
 		if ( sx === 0 ) sx = -2;
 
-		// Force the very first position to be stamped.
+		// Force the very first position to leave a trail stamp.
 		var lastStampX = x - trailStampDistance * 2;
 		var lastStampY = y;
+
+		this.x = x;
+		this.y = y;
+
+		var self = this;
 
 		this.update = function () {
 
 			x += sx;
 			y += sy;
 
-			if ( x < ( - cwidthhalf ) || x > ( canvas.width + cwidthhalf ) ) {
+			self.x = x;
+			self.y = y;
 
-				var index = particles.indexOf( this );
+			if ( x < ( - cwidthhalf ) || x > ( trailCanvas.width + cwidthhalf ) ) {
+
+				var index = particles.indexOf( self );
 				particles.splice( index, 1 );
 				return false;
 
 			}
 
-			if ( y > canvas.height - cheighthalf ) {
+			if ( y > trailCanvas.height - cheighthalf ) {
 
-				y = canvas.height - cheighthalf;
+				y = trailCanvas.height - cheighthalf;
 				sy = - sy * 0.85;
+				self.y = y;
 
 			}
 
 			sy += 1.25;
 
-			// Stamp the card only when the particle has travelled at least
-			// trailStampDistance since the last stamp -- this gives a uniform
-			// spatial density regardless of the particle's current speed.
+			// Occasionally leave a card stamp behind on the trail canvas --
+			// spaced by distance travelled so the pattern is consistent
+			// regardless of current speed.
 			var dx = x - lastStampX;
 			var dy = y - lastStampY;
-			if ( dx * dx + dy * dy < trailStampDistance * trailStampDistance ) {
-				return true;
+			if ( dx * dx + dy * dy >= trailStampDistance * trailStampDistance ) {
+				lastStampX = x;
+				lastStampY = y;
+				drawCard( trailCtx, x, y );
 			}
-			lastStampX = x;
-			lastStampY = y;
-
-			var scale = Math.round( dpr );
-			var r = 6 * scale;
-			var borderWidth = 2 * scale;
-			var left = Math.floor( x - cwidthhalf );
-			var top = Math.floor( y - cheighthalf );
-
-			context.save();
-			drawCardShape( left, top, cwidth, cheight, r );
-			context.fillStyle = '#ffffff';
-			context.fill();
-			context.lineWidth = borderWidth;
-			context.strokeStyle = '#000000';
-			context.stroke();
-			drawCardShape( left, top, cwidth, cheight, r );
-			context.clip();
-			context.drawImage( image, left, top, cwidth, cheight );
-			context.restore();
 
 			return true;
 
@@ -138,10 +139,46 @@
 	deckImage.onload = function () { deckImageReady = true; };
 	deckImage.src = 'card-back.jpg';
 
+	function drawCardShape( ctx, left, top, w, h, r ) {
+		ctx.beginPath();
+		ctx.moveTo( left + r, top );
+		ctx.lineTo( left + w - r, top );
+		ctx.quadraticCurveTo( left + w, top, left + w, top + r );
+		ctx.lineTo( left + w, top + h - r );
+		ctx.quadraticCurveTo( left + w, top + h, left + w - r, top + h );
+		ctx.lineTo( left + r, top + h );
+		ctx.quadraticCurveTo( left, top + h, left, top + h - r );
+		ctx.lineTo( left, top + r );
+		ctx.quadraticCurveTo( left, top, left + r, top );
+		ctx.closePath();
+	}
+
+	// Draws a single zombie card (white body + black border + token) onto the
+	// given context, centered at (x, y).
+	function drawCard( ctx, x, y ) {
+
+		var scale = Math.round( dpr );
+		var r = 6 * scale;
+		var borderWidth = 2 * scale;
+		var left = Math.floor( x - cwidthhalf );
+		var top = Math.floor( y - cheighthalf );
+
+		ctx.save();
+		drawCardShape( ctx, left, top, cwidth, cheight, r );
+		ctx.fillStyle = '#ffffff';
+		ctx.fill();
+		ctx.lineWidth = borderWidth;
+		ctx.strokeStyle = '#000000';
+		ctx.stroke();
+		drawCardShape( ctx, left, top, cwidth, cheight, r );
+		ctx.clip();
+		ctx.drawImage( image, left, top, cwidth, cheight );
+		ctx.restore();
+
+	}
+
 	function drawDeckOutline() {
 
-		// Deck (top-left): rendered as the Magic card back, clipped to a rounded
-		// card shape with a black border matching the face cards.
 		if ( ! deckImageReady ) return;
 
 		var scale = Math.round( dpr );
@@ -150,55 +187,28 @@
 		var r = 10 * scale;
 		var borderWidth = 2 * scale;
 
-		context.save();
+		trailCtx.save();
+		drawCardShape( trailCtx, left, top, cwidth, cheight, r );
+		trailCtx.save();
+		trailCtx.clip();
+		trailCtx.drawImage( deckImage, left, top, cwidth, cheight );
+		trailCtx.restore();
+		drawCardShape( trailCtx, left, top, cwidth, cheight, r );
+		trailCtx.lineWidth = borderWidth;
+		trailCtx.strokeStyle = '#000000';
+		trailCtx.stroke();
+		trailCtx.restore();
 
-		// Clip to the rounded-rect card shape and draw the card-back image.
-		drawCardShape( left, top, cwidth, cheight, r );
-		context.save();
-		context.clip();
-		context.drawImage( deckImage, left, top, cwidth, cheight );
-		context.restore();
-
-		// Black rounded border on top.
-		drawCardShape( left, top, cwidth, cheight, r );
-		context.lineWidth = borderWidth;
-		context.strokeStyle = '#000000';
-		context.stroke();
-
-		context.restore();
-
-	}
-
-	function drawCardShape( left, top, w, h, r ) {
-		// A rounded rectangle path, positioned at (left, top) with size (w, h) and
-		// corner radius r.
-		context.beginPath();
-		context.moveTo( left + r, top );
-		context.lineTo( left + w - r, top );
-		context.quadraticCurveTo( left + w, top, left + w, top + r );
-		context.lineTo( left + w, top + h - r );
-		context.quadraticCurveTo( left + w, top + h, left + w - r, top + h );
-		context.lineTo( left + r, top + h );
-		context.quadraticCurveTo( left, top + h, left, top + h - r );
-		context.lineTo( left, top + r );
-		context.quadraticCurveTo( left, top, left + r, top );
-		context.closePath();
 	}
 
 	function drawStack( centerX, centerY, count ) {
-		// Renders a deck-thickness pile of `count` cards with the top card being
-		// the zombie token. The deeper cards peek out at the bottom-right, with
-		// thin dark hatch lines suggesting individual card edges.
 
 		if ( count <= 0 ) return;
 
 		var scale = Math.round( dpr );
-		var r = 6 * scale; // card corner radius
+		var r = 6 * scale;
 		var borderWidth = 2 * scale;
 
-		// The top (face) card is at (centerX, centerY). Cards below are offset
-		// down-right by (stackStepX, stackStepY) per card.
-		// Draw deepest card first, then progressively to the top.
 		for ( var k = count - 1; k >= 0; k -- ) {
 
 			var cx = centerX + k * stackStepX;
@@ -206,24 +216,21 @@
 			var left = Math.floor( cx - cwidthhalf );
 			var top = Math.floor( cy - cheighthalf );
 
-			// White card body with black border.
-			context.save();
-			drawCardShape( left, top, cwidth, cheight, r );
-			context.fillStyle = '#ffffff';
-			context.fill();
-			context.lineWidth = borderWidth;
-			context.strokeStyle = '#000000';
-			context.stroke();
+			trailCtx.save();
+			drawCardShape( trailCtx, left, top, cwidth, cheight, r );
+			trailCtx.fillStyle = '#ffffff';
+			trailCtx.fill();
+			trailCtx.lineWidth = borderWidth;
+			trailCtx.strokeStyle = '#000000';
+			trailCtx.stroke();
 
 			if ( k === 0 ) {
-				// Top card: draw the zombie token inside the card body.
-				// Clip to the rounded rect so the token stays within the card border.
-				drawCardShape( left, top, cwidth, cheight, r );
-				context.clip();
-				context.drawImage( image, left, top, cwidth, cheight );
+				drawCardShape( trailCtx, left, top, cwidth, cheight, r );
+				trailCtx.clip();
+				trailCtx.drawImage( image, left, top, cwidth, cheight );
 			}
 
-			context.restore();
+			trailCtx.restore();
 
 		}
 	}
@@ -233,10 +240,8 @@
 		if ( ! imageReady ) return;
 
 		for ( var i = 0; i < 4; i ++ ) {
-
 			var center = foundationCenter( i );
 			drawStack( center.x, center.y, stacks[ i ] );
-
 		}
 
 	}
@@ -247,11 +252,9 @@
 		if ( stacks[ i ] <= 0 ) return;
 
 		var center = foundationCenter( i );
-		// Launch from the top (face) card position of the stack.
 		var launchX = center.x;
 		var launchY = center.y;
 
-		// Symmetric horizontal speed range: zombies can fly left OR right.
 		var scale = Math.round( dpr );
 		var sx = Math.floor( Math.random() * 6 - 3 ) * 3 * scale; // -9..9 step 3
 		if ( sx === 0 ) sx = 3 * scale;
@@ -298,33 +301,28 @@
 	}
 
 	function tickShow() {
-
 		if ( ! firing ) return;
-
-		// Fire the next card as soon as no zombies remain on screen.
 		if ( particles.length === 0 ) {
 			fireNextCard();
 		}
-
 	}
 
 	var hasEverStarted = false;
 
-	// Input: first click starts the show; later clicks restart after it finishes.
 	document.addEventListener( 'pointerdown', function () {
 
 		if ( ! imageReady || ! deckImageReady ) return;
 
 		if ( ! firing && ! hasEverStarted ) {
-			// First click: begin firing from the stacks already rendered.
 			hasEverStarted = true;
 			startShow();
 			return;
 		}
 
 		if ( ! firing && hasEverStarted ) {
-			// Show finished: reset everything and start again.
-			context.clearRect( 0, 0, canvas.width, canvas.height );
+			// Restart: clear both canvases and redraw static UI.
+			trailCtx.clearRect( 0, 0, trailCanvas.width, trailCanvas.height );
+			liveCtx.clearRect( 0, 0, liveCanvas.width, liveCanvas.height );
 			particles.length = 0;
 			stacks = [ CARDS_PER_STACK, CARDS_PER_STACK, CARDS_PER_STACK, CARDS_PER_STACK ];
 			drawDeckOutline();
@@ -337,32 +335,33 @@
 	window.addEventListener( 'resize', resize );
 	resize();
 
-	// Animation loop.
-	var lastTime = performance.now();
 	var initialized = false;
 
-	function animate( now ) {
+	function animate() {
 
-		var dt = now - lastTime;
-		lastTime = now;
-
-		// First-time paint once both images have loaded: render the four stacks
-		// and the deck. The show does NOT start until the user clicks.
 		if ( ! initialized && imageReady && deckImageReady ) {
 			initialized = true;
-			context.clearRect( 0, 0, canvas.width, canvas.height );
+			trailCtx.clearRect( 0, 0, trailCanvas.width, trailCanvas.height );
 			drawDeckOutline();
 			drawFoundations();
 		}
 
 		tickShow();
 
-		// Do NOT clear the canvas -- that preserves the bouncing-card trail effect.
-		// The deck outline and foundation stacks were drawn once at init, so they
-		// sit BEHIND the accumulating trails (which paint on top over time).
+		// Physics + trail stamping (trail stamps are written to trailCtx inside
+		// Particle.update, only every trailStampDistance pixels of travel).
 		var i = 0, l = particles.length;
 		while ( i < l ) {
 			particles[ i ].update() ? i ++ : l --;
+		}
+
+		// Redraw all live particles on the live canvas from scratch each frame
+		// so motion is perfectly smooth.
+		liveCtx.clearRect( 0, 0, liveCanvas.width, liveCanvas.height );
+		if ( imageReady ) {
+			for ( var p = 0; p < particles.length; p ++ ) {
+				drawCard( liveCtx, particles[ p ].x, particles[ p ].y );
+			}
 		}
 
 		requestAnimationFrame( animate );
