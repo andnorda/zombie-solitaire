@@ -59,11 +59,18 @@
 		return { x: x, y: foundationsBaseY };
 	}
 
+	// Minimum distance (in canvas pixels) between consecutive trail stamps for a
+	// single particle. Tuning this gives a visually consistent trail density
+	// regardless of how fast any individual particle is moving.
+	var trailStampDistance = 14 * Math.round( dpr );
+
 	function Particle( x, y, sx, sy ) {
 
 		if ( sx === 0 ) sx = -2;
 
-		var frame = 0;
+		// Force the very first position to be stamped.
+		var lastStampX = x - trailStampDistance * 2;
+		var lastStampY = y;
 
 		this.update = function () {
 
@@ -87,9 +94,16 @@
 
 			sy += 1.25;
 
-			// Stamp a card in the trail on 3 out of every 4 frames (75% density).
-			frame ++;
-			if ( frame % 4 === 0 ) return true;
+			// Stamp the card only when the particle has travelled at least
+			// trailStampDistance since the last stamp -- this gives a uniform
+			// spatial density regardless of the particle's current speed.
+			var dx = x - lastStampX;
+			var dy = y - lastStampY;
+			if ( dx * dx + dy * dy < trailStampDistance * trailStampDistance ) {
+				return true;
+			}
+			lastStampX = x;
+			lastStampY = y;
 
 			var scale = Math.round( dpr );
 			var r = 6 * scale;
