@@ -72,7 +72,7 @@
 
 	// Minimum distance (in canvas pixels) between consecutive trail stamps for a
 	// single particle. Controls how often the trail is left behind.
-	var trailStampDistance = 25 * Math.round( dpr );
+	var trailStampDistance = 18 * Math.round( dpr );
 
 	function Particle( x, y, sx, sy ) {
 
