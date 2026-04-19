@@ -1,23 +1,24 @@
 (function () {
-  var dpr = window.devicePixelRatio || 1;
-  var REFERENCE_WIDTH = 1440;
-  var CARDS_PER_STACK = 13;
+  const REFERENCE_WIDTH = 1440;
+  const CARDS_PER_STACK = 13;
+  const TOTAL_CARDS = CARDS_PER_STACK * 4;
 
-  var canvas = document.getElementById("trail");
-  var ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const canvas = document.getElementById("trail");
+  const ctx = canvas.getContext("2d");
 
   // `unit` scales everything with the viewport so the scene looks the same on
   // a laptop and a projector. Design constants are tuned at a 1440-px canvas.
-  var unit = 1;
-  var cw = 0;
-  var ch = 0;
-  var margin = 0;
-  var stackSpacing = 0;
-  var stackStep = 0;
+  let unit = 1;
+  let cw = 0;
+  let ch = 0;
+  let margin = 0;
+  let stackSpacing = 0;
+  let stackStep = 0;
 
-  var image, deckImage;
-  var queue = [];
-  var particles = [];
+  let image, deckImage;
+  let fired = 0;
+  const particles = [];
 
   function resize() {
     canvas.width = window.innerWidth * dpr;
@@ -38,51 +39,8 @@
     drawStatic();
   }
 
-  function deckCenter() {
-    return { x: margin + cw / 2, y: margin + ch / 2 };
-  }
-
-  function stackCenter(i) {
-    return {
-      x: canvas.width - margin - cw / 2 - (3 - i) * stackSpacing,
-      y: margin + ch / 2,
-    };
-  }
-
-  function cardShape(left, top, r) {
-    ctx.beginPath();
-    ctx.moveTo(left + r, top);
-    ctx.lineTo(left + cw - r, top);
-    ctx.quadraticCurveTo(left + cw, top, left + cw, top + r);
-    ctx.lineTo(left + cw, top + ch - r);
-    ctx.quadraticCurveTo(left + cw, top + ch, left + cw - r, top + ch);
-    ctx.lineTo(left + r, top + ch);
-    ctx.quadraticCurveTo(left, top + ch, left, top + ch - r);
-    ctx.lineTo(left, top + r);
-    ctx.quadraticCurveTo(left, top, left + r, top);
-    ctx.closePath();
-  }
-
-  function drawCard(x, y, img, r, fill, stroke, strokeWidth) {
-    var left = Math.floor(x - cw / 2);
-    var top = Math.floor(y - ch / 2);
-
-    cardShape(left, top, r);
-    ctx.fillStyle = fill;
-    ctx.fill();
-
-    if (img) {
-      ctx.save();
-      cardShape(left, top, r);
-      ctx.clip();
-      ctx.drawImage(img, left, top, cw, ch);
-      ctx.restore();
-    }
-
-    cardShape(left, top, r);
-    ctx.lineWidth = strokeWidth;
-    ctx.strokeStyle = stroke;
-    ctx.stroke();
+  function stackX(i) {
+    return canvas.width - margin - cw / 2 - (3 - i) * stackSpacing;
   }
 
   // A zombie-token card: PNG on a dark fill + matching dark border. The PNG's
@@ -90,7 +48,33 @@
   // inside the clip is transparent -- matching the fill/stroke to the PNG's
   // own border color (#181510) makes the seam invisible.
   function zombieCard(x, y) {
-    drawCard(x, y, image, 6 * unit, "#181510", "#181510", 2 * unit);
+    const left = Math.floor(x - cw / 2);
+    const top = Math.floor(y - ch / 2);
+
+    ctx.beginPath();
+    ctx.roundRect(left, top, cw, ch, 6 * unit);
+    ctx.fillStyle = "#181510";
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    ctx.drawImage(image, left, top, cw, ch);
+    ctx.restore();
+    ctx.lineWidth = 2 * unit;
+    ctx.strokeStyle = "#181510";
+    ctx.stroke();
+  }
+
+  function underCard(x, y) {
+    const left = Math.floor(x - cw / 2);
+    const top = Math.floor(y - ch / 2);
+
+    ctx.beginPath();
+    ctx.roundRect(left, top, cw, ch, 6 * unit);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.lineWidth = stackStep;
+    ctx.strokeStyle = "#000000";
+    ctx.stroke();
   }
 
   function drawStatic() {
@@ -98,48 +82,51 @@
 
     // Deck. r=14 lands the clip inside the card's black border, past the
     // JPG's thin white margin transition zone.
-    var d = deckCenter();
-    drawCard(d.x, d.y, deckImage, 14 * unit, "#181510", "#000000", 2 * unit);
+    const dLeft = Math.floor(margin);
+    const dTop = Math.floor(margin);
+    ctx.beginPath();
+    ctx.roundRect(dLeft, dTop, cw, ch, 14 * unit);
+    ctx.fillStyle = "#181510";
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    ctx.drawImage(deckImage, dLeft, dTop, cw, ch);
+    ctx.restore();
+    ctx.lineWidth = 2 * unit;
+    ctx.strokeStyle = "#000000";
+    ctx.stroke();
 
-    // Four foundation stacks of zombie tokens.
-    for (var i = 0; i < 4; i++) {
-      var c = stackCenter(i);
-      for (var k = CARDS_PER_STACK - 1; k >= 0; k--) {
-        var cx = c.x - k * stackStep;
-        var cy = c.y - k * stackStep;
-        if (k === 0) {
-          zombieCard(cx, cy);
-        } else {
-          drawCard(cx, cy, null, 6 * unit, "#ffffff", "#000000", stackStep);
-        }
+    for (let i = 0; i < 4; i++) {
+      const x0 = stackX(i);
+      const y0 = margin + ch / 2;
+      for (let k = CARDS_PER_STACK - 1; k >= 0; k--) {
+        const x = x0 - k * stackStep;
+        const y = y0 - k * stackStep;
+        if (k === 0) zombieCard(x, y);
+        else underCard(x, y);
       }
     }
   }
 
   function launch(stackIdx) {
-    var c = stackCenter(stackIdx);
-    var sx = Math.floor(Math.random() * 6 - 3) * 3 * unit; // -9..9 step 3
-    if (sx === 0) sx = 3 * unit;
-    var sy = -Math.random() * 20 * unit;
-    particles.push({ x: c.x, y: c.y, sx: sx, sy: sy });
+    const sx = [-9, -6, -3, 3, 6, 9][Math.floor(Math.random() * 6)] * unit;
+    const sy = -Math.random() * 20 * unit;
+    particles.push({ x: stackX(stackIdx), y: margin + ch / 2, sx, sy });
   }
 
   function restart() {
     particles.length = 0;
-    queue.length = 0;
-    for (var n = 0; n < CARDS_PER_STACK; n++) {
-      for (var i = 0; i < 4; i++) queue.push(i);
-    }
+    fired = 0;
     drawStatic();
   }
 
   function step() {
-    if (particles.length === 0 && queue.length > 0) {
-      launch(queue.shift());
+    if (particles.length === 0 && fired < TOTAL_CARDS) {
+      launch(fired++ % 4);
     }
 
-    for (var i = particles.length - 1; i >= 0; i--) {
-      var p = particles[i];
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
       p.x += p.sx;
       p.y += p.sy;
       p.sy += 1.25 * unit;
@@ -161,19 +148,17 @@
   }
 
   function load(src) {
-    return new Promise(function (resolve) {
-      var img = new Image();
-      img.onload = function () {
-        resolve(img);
-      };
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
       img.src = src;
     });
   }
 
   Promise.all([load("zombie-token.png"), load("card-back.jpg")]).then(
-    function (imgs) {
-      image = imgs[0];
-      deckImage = imgs[1];
+    ([i, d]) => {
+      image = i;
+      deckImage = d;
       resize();
       window.addEventListener("resize", resize);
       document.addEventListener("pointerdown", restart);
